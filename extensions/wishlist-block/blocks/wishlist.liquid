@@ -1,0 +1,194 @@
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+<div class="wishlist-block" x-data="wishlist"> 
+  <div class="wishlist-header" @click="addToWishlist">
+    <svg class="wishlist-icon" width="24" height="24" viewBox="0 0 24 24" :fill="wishlisted ? 'red' : 'none'" stroke="{{ block.settings.text_color }}">
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+    </svg>
+  </div>
+</div>
+
+<style>
+  .wishlist-block {
+    padding: 20px;
+  }
+  
+  .wishlist-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+  }
+  
+  .wishlist-icon {
+    stroke-width: 2;
+    transition: fill 0.3s ease;
+  }
+  
+  .wishlist-header h2 {
+    margin: 0;
+    font-size: 24px;
+  }
+</style>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('wishlist', () => ({
+        wishlisted: false,
+        customerId: null,
+        productId: '{{ product.id }}',
+        wishlistMetafield: [],
+        
+        init() {
+            {% if customer %}
+                this.customerId = '{{ customer.id }}';
+                this.checkDatabaseWishlist();
+            {% else %}
+                this.checkLocalWishlist();
+            {% endif %}
+        },
+
+        async checkDatabaseWishlist() {
+            // For logged-in users, check localStorage as initial state
+            const localWishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
+            this.wishlisted = localWishlist.includes(this.productId);
+        },
+
+        checkLocalWishlist() {
+            const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
+            this.wishlisted = wishlist.includes(this.productId);
+        },
+
+        async addToWishlist() {
+            {% if customer %}
+                if (!this.customerId || !this.productId) {
+                    alert('Error: Missing required data');
+                    return;
+                }
+
+                try {
+                    if (this.wishlisted) {
+                        await this.removeFromWishlist();
+                    } else {
+                        await this.saveToWishlist();
+                    }
+                } catch (error) {
+                    console.error('Error managing wishlist:', error);
+                    alert('An error occurred. Please try again.');
+                }
+            {% else %}
+                this.toggleLocalWishlist();
+            {% endif %}
+        },
+
+        toggleLocalWishlist() {
+            const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
+            const index = wishlist.indexOf(this.productId);
+
+            if (index > -1) {
+                wishlist.splice(index, 1);
+                this.wishlisted = false;
+            } else {
+                wishlist.push(this.productId);
+                this.wishlisted = true;
+            }
+
+            localStorage.setItem('shopify_wishlist_items', JSON.stringify(wishlist));
+        },
+
+        async saveToWishlist() {
+            try {
+                const response = await fetch('/apps/wishlist/api/wishlist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        customerId: this.customerId,
+                        productId: this.productId,
+                        shop: '{{ shop.permanent_domain }}'
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    this.wishlisted = true;
+                    // Also save to localStorage for instant access
+                    this.addToLocalStorage();
+                    console.log('Saved to database and localStorage');
+                } else {
+                    alert(data.message || 'Failed to add to wishlist');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to add to wishlist');
+            }
+        },
+
+        async removeFromWishlist() {
+            try {
+                const response = await fetch('/apps/wishlist/api/wishlist', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        customerId: this.customerId,
+                        productId: this.productId
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    this.wishlisted = false;
+                    // Also remove from localStorage
+                    this.removeFromLocalStorage();
+                    console.log('Removed from database and localStorage');
+                } else {
+                    alert(data.message || 'Failed to remove from wishlist');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to remove from wishlist');
+            }
+        },
+
+        addToLocalStorage() {
+            const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
+            if (!wishlist.includes(this.productId)) {
+                wishlist.push(this.productId);
+                localStorage.setItem('shopify_wishlist_items', JSON.stringify(wishlist));
+            }
+        },
+
+        removeFromLocalStorage() {
+            const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
+            const index = wishlist.indexOf(this.productId);
+            if (index > -1) {
+                wishlist.splice(index, 1);
+                localStorage.setItem('shopify_wishlist_items', JSON.stringify(wishlist));
+            }
+        }
+    }))
+})
+</script>
+
+
+{% schema %}
+{
+  "name": "Wishlist",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading_text",
+      "label": "Heading Text",
+      "default": "My Wishlist"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Text Color",
+      "default": "#000000"
+    }
+  ]
+}
+{% endschema %}

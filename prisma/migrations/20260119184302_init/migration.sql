@@ -18,3 +18,11 @@ CREATE TABLE "Session" (
     "refreshToken" TEXT,
     "refreshTokenExpires" DATETIME
 );
+
+-- CreateTable
+CREATE TABLE "Settings" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "shop" TEXT,
+    "name" TEXT,
+    "description" TEXT
+);
