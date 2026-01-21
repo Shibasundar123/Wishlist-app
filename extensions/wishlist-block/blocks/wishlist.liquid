@@ -1,6 +1,4 @@
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
-<div class="wishlist-block" x-data="wishlist"> 
+<div class="wishlist-block" x-data="wishlistData()"> 
   <div class="wishlist-header" @click="addToWishlist">
     <svg class="wishlist-icon" width="24" height="24" viewBox="0 0 24 24" :fill="wishlisted ? 'red' : 'none'" stroke="{{ block.settings.text_color }}">
       <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
@@ -32,8 +30,8 @@
 </style>
 
 <script>
-document.addEventListener('alpine:init', () => {
-    Alpine.data('wishlist', () => ({
+window.wishlistData = function() {
+    return {
         wishlisted: false,
         customerId: null,
         productId: '{{ product.id }}',
@@ -60,11 +58,15 @@ document.addEventListener('alpine:init', () => {
         },
 
         async addToWishlist() {
+            console.log('addToWishlist clicked!');
             {% if customer %}
                 if (!this.customerId || !this.productId) {
                     alert('Error: Missing required data');
                     return;
                 }
+
+                console.log('Customer ID:', this.customerId);
+                console.log('Product ID:', this.productId);
 
                 try {
                     if (this.wishlisted) {
@@ -77,6 +79,7 @@ document.addEventListener('alpine:init', () => {
                     alert('An error occurred. Please try again.');
                 }
             {% else %}
+                console.log('Guest user - using localStorage');
                 this.toggleLocalWishlist();
             {% endif %}
         },
@@ -97,18 +100,26 @@ document.addEventListener('alpine:init', () => {
         },
 
         async saveToWishlist() {
+            console.log('saveToWishlist called');
+            const url = '/apps/wishlist/api/wishlist';
+            const payload = {
+                customerId: this.customerId,
+                productId: this.productId,
+                shop: '{{ shop.permanent_domain }}'
+            };
+            console.log('Sending POST to:', url);
+            console.log('Payload:', payload);
+            
             try {
-                const response = await fetch('/apps/wishlist/api/wishlist', {
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        customerId: this.customerId,
-                        productId: this.productId,
-                        shop: '{{ shop.permanent_domain }}'
-                    })
+                    body: JSON.stringify(payload)
                 });
 
+                console.log('Response status:', response.status);
                 const data = await response.json();
+                console.log('Response data:', data);
                 
                 if (response.ok) {
                     this.wishlisted = true;
@@ -131,7 +142,8 @@ document.addEventListener('alpine:init', () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         customerId: this.customerId,
-                        productId: this.productId
+                        productId: this.productId,
+                        shop: '{{ shop.permanent_domain }}'
                     })
                 });
 
@@ -167,9 +179,11 @@ document.addEventListener('alpine:init', () => {
                 localStorage.setItem('shopify_wishlist_items', JSON.stringify(wishlist));
             }
         }
-    }))
-})
+    }
+}
 </script>
+
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
 
 {% schema %}
