@@ -1,0 +1,585 @@
+{% comment %}
+  Wishlist Display Block - Shows all wishlist items with remove and add to cart options
+{% endcomment %}
+
+<div class="wishlist-container" x-data="wishlistShow()">
+  <div class="wishlist-header">
+    <h2 style="color: {{ block.settings.heading_color }}">{{ block.settings.heading_text }}</h2>
+    <span class="wishlist-count" x-text="wishlistItems.length + ' items'"></span>
+  </div>
+
+  <template x-if="loading">
+    <div class="wishlist-loading">
+      <div class="spinner"></div>
+      <p>Loading your wishlist...</p>
+    </div>
+  </template>
+
+  <template x-if="!loading && wishlistItems.length === 0">
+    <div class="wishlist-empty">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+      </svg>
+      <h3>Your wishlist is empty</h3>
+      <p>Save your favorite items for later!</p>
+      <a href="/collections/all" class="btn-shop">Continue Shopping</a>
+    </div>
+  </template>
+
+  <template x-if="!loading && wishlistItems.length > 0">
+    <div class="wishlist-grid">
+      <template x-for="item in wishlistItems" :key="item.id">
+        <div class="wishlist-item">
+          <div class="item-image">
+            <img :src="item.image" :alt="item.title" loading="lazy">
+            <button @click="removeFromWishlist(item.productId)" class="btn-remove" title="Remove from wishlist">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          
+          <div class="item-details">
+            <a :href="item.url" class="item-title" x-text="item.title"></a>
+            <p class="item-vendor" x-text="item.vendor" x-show="item.vendor"></p>
+            
+            <div class="item-price">
+              <span class="price" x-text="formatPrice(item.price)"></span>
+              <template x-if="item.compareAtPrice && item.compareAtPrice > item.price">
+                <span class="compare-price" x-text="formatPrice(item.compareAtPrice)"></span>
+              </template>
+            </div>
+
+            <div class="item-availability" :class="item.available ? 'in-stock' : 'out-of-stock'">
+              <span x-text="item.available ? '✓ In Stock' : '✗ Out of Stock'"></span>
+            </div>
+
+            <div class="item-actions">
+              <template x-if="item.available">
+                <button @click="addToCart(item)" class="btn-add-to-cart" :disabled="item.adding">
+                  <span x-show="!item.adding">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="9" cy="21" r="1"></circle>
+                      <circle cx="20" cy="21" r="1"></circle>
+                      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+                    </svg>
+                    Add to Cart
+                  </span>
+                  <span x-show="item.adding">Adding...</span>
+                </button>
+              </template>
+              <template x-if="!item.available">
+                <button class="btn-notify" @click="notifyMe(item)">
+                  Notify When Available
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </template>
+
+  <template x-if="error">
+    <div class="wishlist-error">
+      <p x-text="error"></p>
+      <button @click="fetchWishlist()" class="btn-retry">Retry</button>
+    </div>
+  </template>
+</div>
+
+<style>
+  .wishlist-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 20px;
+  }
+
+  .wishlist-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid #e5e5e5;
+  }
+
+  .wishlist-header h2 {
+    margin: 0;
+    font-size: 32px;
+    font-weight: 600;
+  }
+
+  .wishlist-count {
+    font-size: 16px;
+    color: #666;
+    background: #f5f5f5;
+    padding: 8px 16px;
+    border-radius: 20px;
+  }
+
+  .wishlist-loading {
+    text-align: center;
+    padding: 60px 20px;
+  }
+
+  .spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid {{ block.settings.primary_color | default: '#000' }};
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  .wishlist-empty {
+    text-align: center;
+    padding: 80px 20px;
+  }
+
+  .wishlist-empty svg {
+    color: #ccc;
+    margin-bottom: 20px;
+  }
+
+  .wishlist-empty h3 {
+    font-size: 24px;
+    margin-bottom: 10px;
+    color: #333;
+  }
+
+  .wishlist-empty p {
+    color: #666;
+    margin-bottom: 30px;
+  }
+
+  .btn-shop {
+    display: inline-block;
+    background: {{ block.settings.primary_color | default: '#000' }};
+    color: white;
+    padding: 12px 30px;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: 500;
+    transition: opacity 0.3s;
+  }
+
+  .btn-shop:hover {
+    opacity: 0.8;
+  }
+
+  .wishlist-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 30px;
+  }
+
+  .wishlist-item {
+    background: white;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.3s;
+  }
+
+  .wishlist-item:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+
+  .item-image {
+    position: relative;
+    padding-top: 100%;
+    overflow: hidden;
+    background: #f9f9f9;
+  }
+
+  .item-image img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .btn-remove {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: white;
+    border: none;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: all 0.3s;
+    z-index: 10;
+  }
+
+  .btn-remove:hover {
+    background: #ff4444;
+    color: white;
+    transform: scale(1.1);
+  }
+
+  .btn-remove:hover svg {
+    stroke: white;
+  }
+
+  .item-details {
+    padding: 16px;
+  }
+
+  .item-title {
+    display: block;
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+    text-decoration: none;
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+
+  .item-title:hover {
+    color: {{ block.settings.primary_color | default: '#000' }};
+  }
+
+  .item-vendor {
+    font-size: 13px;
+    color: #999;
+    margin: 0 0 12px 0;
+  }
+
+  .item-price {
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .price {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+  }
+
+  .compare-price {
+    font-size: 14px;
+    color: #999;
+    text-decoration: line-through;
+  }
+
+  .item-availability {
+    font-size: 13px;
+    margin-bottom: 16px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    display: inline-block;
+  }
+
+  .item-availability.in-stock {
+    background: #e8f5e9;
+    color: #2e7d32;
+  }
+
+  .item-availability.out-of-stock {
+    background: #ffebee;
+    color: #c62828;
+  }
+
+  .item-actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  .btn-add-to-cart,
+  .btn-notify {
+    flex: 1;
+    background: {{ block.settings.primary_color | default: '#000' }};
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .btn-add-to-cart:hover:not(:disabled),
+  .btn-notify:hover {
+    opacity: 0.85;
+  }
+
+  .btn-add-to-cart:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-notify {
+    background: #666;
+  }
+
+  .wishlist-error {
+    text-align: center;
+    padding: 40px;
+    background: #ffebee;
+    border-radius: 8px;
+    color: #c62828;
+  }
+
+  .btn-retry {
+    margin-top: 20px;
+    background: #c62828;
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+
+  @media (max-width: 768px) {
+    .wishlist-grid {
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 16px;
+    }
+
+    .wishlist-header h2 {
+      font-size: 24px;
+    }
+
+    .item-details {
+      padding: 12px;
+    }
+  }
+</style>
+
+<script>
+window.wishlistShow = function() {
+  return {
+    wishlistItems: [],
+    loading: true,
+    error: null,
+    customerId: '{% if customer %}{{ customer.id }}{% endif %}',
+
+    async init() {
+      {% if customer %}
+        await this.fetchWishlist();
+      {% else %}
+        this.loadGuestWishlist();
+      {% endif %}
+    },
+
+    async fetchWishlist() {
+      this.loading = true;
+      this.error = null;
+
+      console.log('🚀 Fetching wishlist for customer:', this.customerId);
+
+      try {
+        // Fetch wishlist items from your database using GET request
+        const url = new URL('/apps/wishlist/api/wishlist', window.location.origin);
+        url.searchParams.append('customerId', this.customerId);
+        url.searchParams.append('shop', '{{ shop.permanent_domain }}');
+        
+        console.log('📡 Request URL:', url.toString());
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        console.log('📨 Response status:', response.status);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('❌ Error response:', errorData);
+          throw new Error('Failed to fetch wishlist');
+        }
+
+        const data = await response.json();
+        console.log('✅ Wishlist data received:', data);
+        
+        // Fetch product details from Shopify
+        if (data.wishlist && data.wishlist.length > 0) {
+          await this.fetchProductDetails(data.wishlist);
+        } else {
+          this.wishlistItems = [];
+        }
+      } catch (error) {
+        console.error('Error fetching wishlist:', error);
+        this.error = 'Failed to load wishlist. Please try again.';
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async fetchProductDetails(productIds) {
+      try {
+        // Fetch product details from backend API
+        const response = await fetch('/apps/wishlist/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productIds: productIds,
+            shop: '{{ shop.permanent_domain }}'
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch product details');
+        }
+
+        const data = await response.json();
+        
+        // Add the 'adding' flag to each product
+        this.wishlistItems = data.products.map(p => ({
+          ...p,
+          adding: false
+        }));
+      } catch (error) {
+        console.error('Error fetching product details:', error);
+        this.error = 'Failed to load product details.';
+      }
+    },
+
+    loadGuestWishlist() {
+      const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
+      
+      if (wishlist.length > 0) {
+        this.fetchProductDetails(wishlist);
+      } else {
+        this.wishlistItems = [];
+        this.loading = false;
+      }
+    },
+
+    async removeFromWishlist(productId) {
+      if (!confirm('Remove this item from your wishlist?')) return;
+
+      try {
+        {% if customer %}
+          const response = await fetch('/apps/wishlist/api/wishlist', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customerId: this.customerId,
+              productId: productId,
+              shop: '{{ shop.permanent_domain }}'
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to remove item');
+          }
+        {% else %}
+          // Guest user - remove from localStorage
+          const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
+          const index = wishlist.indexOf(productId);
+          if (index > -1) {
+            wishlist.splice(index, 1);
+            localStorage.setItem('shopify_wishlist_items', JSON.stringify(wishlist));
+          }
+        {% endif %}
+
+        // Remove from UI
+        this.wishlistItems = this.wishlistItems.filter(item => item.productId != productId);
+        
+      } catch (error) {
+        console.error('Error removing item:', error);
+        alert('Failed to remove item. Please try again.');
+      }
+    },
+
+    async addToCart(item) {
+      if (item.adding) return;
+      
+      item.adding = true;
+
+      try {
+        const formData = {
+          items: [{
+            id: item.variantId,
+            quantity: 1
+          }]
+        };
+
+        const response = await fetch('/cart/add.js', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to add to cart');
+        }
+
+        // Optional: Show success message or redirect to cart
+        if (confirm('Added to cart! View cart now?')) {
+          window.location.href = '/cart';
+        }
+      } catch (error) {
+        console.error('Error adding to cart:', error);
+        alert('Failed to add to cart. Please try again.');
+      } finally {
+        item.adding = false;
+      }
+    },
+
+    notifyMe(item) {
+      // You can implement email notification or back-in-stock alerts here
+      alert(`We'll notify you when ${item.title} is back in stock!`);
+      // Implement your notification logic
+    },
+
+    formatPrice(cents) {
+      return '{{ shop.money_format }}'.replace(/\{\{\s*amount\s*\}\}/, (cents / 100).toFixed(2));
+    }
+  }
+}
+</script>
+
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+{% schema %}
+{
+  "name": "Wishlist Display",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading_text",
+      "label": "Heading Text",
+      "default": "My Wishlist"
+    },
+    {
+      "type": "color",
+      "id": "heading_color",
+      "label": "Heading Color",
+      "default": "#000000"
+    },
+    {
+      "type": "color",
+      "id": "primary_color",
+      "label": "Primary Button Color",
+      "default": "#000000"
+    }
+  ]
+}
+{% endschema %}

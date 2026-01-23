@@ -1,6 +1,75 @@
 import prisma from "../db.server";
 import shopify from "../shopify.server";
 
+// Handle GET requests - fetch wishlist
+export async function loader({ request }) {
+    try {
+        const url = new URL(request.url);
+        let customerId = url.searchParams.get('customerId');
+        const shop = url.searchParams.get('shop');
+
+        console.log('📥 GET Request - Customer ID received:', customerId);
+        console.log('📥 GET Request - Shop:', shop);
+
+        if (!customerId) {
+            return Response.json({ 
+                message: "customerId is required.",
+                wishlist: []
+            }, { status: 400 });
+        }
+
+        const shopDomain = shop || 'sp-store-20220778.myshopify.com';
+
+        // Convert GID to numeric ID if needed for database lookup
+        let numericCustomerId = customerId;
+        if (customerId.includes('gid://shopify/Customer/')) {
+            numericCustomerId = customerId.split('/').pop();
+            console.log('🔄 Converted GID to numeric:', numericCustomerId);
+        }
+
+        // Try both formats to find wishlist items
+        console.log('🔍 Searching database with Customer ID:', numericCustomerId);
+        console.log('🔍 Shop domain:', shopDomain);
+
+        const wishlistItems = await prisma.wishlist.findMany({
+            where: { 
+                customerId: numericCustomerId,
+                shop: shopDomain 
+            },
+            orderBy: {
+                createdAt: 'desc'
+            }
+        });
+
+        console.log('✅ Found wishlist items:', wishlistItems.length);
+        console.log('📦 Raw items:', JSON.stringify(wishlistItems, null, 2));
+
+        // Extract product IDs
+        const productIds = wishlistItems.map(item => {
+            return item.productId.startsWith('gid://') 
+                ? item.productId 
+                : `gid://shopify/Product/${item.productId}`;
+        });
+
+        console.log('📤 Returning product IDs:', productIds);
+
+        return Response.json({ 
+            message: "Wishlist fetched successfully.",
+            wishlist: productIds,
+            count: productIds.length
+        }, { status: 200 });
+
+    } catch (error) {
+        console.error("❌ Error fetching wishlist:", error);
+        return Response.json({ 
+            message: "Error fetching wishlist.",
+            error: error.message,
+            wishlist: []
+        }, { status: 500 });
+    }
+}
+
+// Handle POST/DELETE requests
 export async function action({ request }) {
     const method = request.method;
 
@@ -52,45 +121,45 @@ export async function action({ request }) {
         }
 
         if (method === "POST") {
-            // Get current wishlist from customer metafield
-            let wishlistProducts = [];
-            
-            if (admin) {
-                try {
-                    const getQuery = `
-                        query GetCustomerWishlist($customerId: ID!) {
-                            customer(id: $customerId) {
-                                id
-                                metafield(namespace: "custom", key: "wishlist") {
-                                    value
-                                }
-                            }
-                        }
-                    `;
-                    
-                    const result = await admin.query(getQuery, { customerId: customerGID });
-                    console.log('Read metafield result:', JSON.stringify(result, null, 2));
-                    
-                    if (result.data?.customer?.metafield?.value) {
-                        try {
-                            wishlistProducts = JSON.parse(result.data.customer.metafield.value);
-                        } catch (e) {
-                            console.log('Failed to parse metafield value:', e);
-                        }
-                    }
-                } catch (e) {
-                    console.log('Failed to read metafield:', e);
-                }
+            // Check if already exists in database
+            const existing = await prisma.wishlist.findFirst({
+                where: { customerId, productId, shop: shopDomain }
+            });
+
+            if (!existing) {
+                // Add to database
+                await prisma.wishlist.create({
+                    data: { customerId, productId, shop: shopDomain }
+                });
+                console.log('Product added to database:', productId);
+            } else {
+                console.log('Product already in wishlist database');
             }
 
-            // Add product if not already in wishlist
-            if (!wishlistProducts.includes(productGID)) {
-                wishlistProducts.push(productGID);
-            }
+            // Get ALL wishlist items from database for this customer
+            const allWishlistItems = await prisma.wishlist.findMany({
+                where: { customerId, shop: shopDomain }
+            });
 
-            // Save to customer metafield
-            if (admin) {
+            // Build array of product GIDs
+            const wishlistProducts = allWishlistItems.map(item => {
+                return item.productId.startsWith('gid://') 
+                    ? item.productId 
+                    : `gid://shopify/Product/${item.productId}`;
+            });
+
+            console.log('All wishlist items from DB:', wishlistProducts);
+            console.log('Customer GID:', customerGID);
+            console.log('Admin object exists:', !!admin);
+
+            // Sync to customer metafield
+            if (!admin) {
+                console.error('Admin object is null - cannot update metafield');
+            } else {
                 try {
+                    const metafieldValue = JSON.stringify(wishlistProducts);
+                    console.log('Metafield value to set:', metafieldValue);
+                    
                     const mutation = `
                         mutation UpdateCustomerWishlist($customerId: ID!, $value: String!) {
                             metafieldsSet(
@@ -98,12 +167,16 @@ export async function action({ request }) {
                                     ownerId: $customerId
                                     namespace: "custom"
                                     key: "wishlist"
+                                    type: "list.product_reference"
                                     value: $value
                                 }]
                             ) {
                                 metafields {
                                     id
                                     value
+                                    type
+                                    namespace
+                                    key
                                 }
                                 userErrors {
                                     field
@@ -115,24 +188,23 @@ export async function action({ request }) {
                     
                     const result = await admin.query(mutation, {
                         customerId: customerGID,
-                        value: JSON.stringify(wishlistProducts)
+                        value: metafieldValue
                     });
                     
-                    console.log('Update metafield result:', JSON.stringify(result, null, 2));
+                    console.log('Full metafield mutation result:', JSON.stringify(result, null, 2));
+                    
+                    if (result.data?.metafieldsSet?.userErrors?.length > 0) {
+                        console.error('❌ Metafield update errors:', result.data.metafieldsSet.userErrors);
+                    } else {
+                        console.log('✅ Metafield updated successfully:', result.data?.metafieldsSet?.metafields);
+                    }
+                    
+                    if (result.errors) {
+                        console.error('❌ GraphQL errors:', result.errors);
+                    }
                 } catch (e) {
-                    console.log('Failed to update metafield:', e);
+                    console.error('❌ Exception updating metafield:', e.message, e.stack);
                 }
-            }
-
-            // Also save to database as backup
-            const existing = await prisma.wishlist.findFirst({
-                where: { customerId, productId, shop: shopDomain }
-            });
-
-            if (!existing) {
-                await prisma.wishlist.create({
-                    data: { customerId, productId, shop: shopDomain }
-                });
             }
 
             return Response.json({ 
@@ -141,42 +213,35 @@ export async function action({ request }) {
             }, { status: 200 });
 
         } else if (method === "DELETE") {
-            // Get current wishlist from customer metafield
-            let wishlistProducts = [];
-            
-            if (admin) {
-                try {
-                    const getQuery = `
-                        query GetCustomerWishlist($customerId: ID!) {
-                            customer(id: $customerId) {
-                                id
-                                metafield(namespace: "custom", key: "wishlist") {
-                                    value
-                                }
-                            }
-                        }
-                    `;
-                    
-                    const result = await admin.query(getQuery, { customerId: customerGID });
-                    
-                    if (result.data?.customer?.metafield?.value) {
-                        try {
-                            wishlistProducts = JSON.parse(result.data.customer.metafield.value);
-                        } catch (e) {
-                            console.log('Failed to parse metafield value:', e);
-                        }
-                    }
-                } catch (e) {
-                    console.log('Failed to read metafield:', e);
-                }
-            }
+            // Remove from database
+            await prisma.wishlist.deleteMany({
+                where: { customerId, productId, shop: shopDomain }
+            });
+            console.log('Product removed from database:', productId);
 
-            // Remove product from wishlist
-            wishlistProducts = wishlistProducts.filter(id => id !== productGID);
+            // Get remaining wishlist items from database
+            const allWishlistItems = await prisma.wishlist.findMany({
+                where: { customerId, shop: shopDomain }
+            });
 
-            // Update customer metafield
-            if (admin) {
+            // Build array of product GIDs
+            const wishlistProducts = allWishlistItems.map(item => {
+                return item.productId.startsWith('gid://') 
+                    ? item.productId 
+                    : `gid://shopify/Product/${item.productId}`;
+            });
+
+            console.log('Remaining wishlist items from DB:', wishlistProducts);
+            console.log('Customer GID:', customerGID);
+
+            // Sync to customer metafield
+            if (!admin) {
+                console.error('Admin object is null - cannot update metafield');
+            } else {
                 try {
+                    const metafieldValue = JSON.stringify(wishlistProducts);
+                    console.log('Metafield value to set:', metafieldValue);
+                    
                     const mutation = `
                         mutation UpdateCustomerWishlist($customerId: ID!, $value: String!) {
                             metafieldsSet(
@@ -184,12 +249,16 @@ export async function action({ request }) {
                                     ownerId: $customerId
                                     namespace: "custom"
                                     key: "wishlist"
+                                    type: "list.product_reference"
                                     value: $value
                                 }]
                             ) {
                                 metafields {
                                     id
                                     value
+                                    type
+                                    namespace
+                                    key
                                 }
                                 userErrors {
                                     field
@@ -199,19 +268,26 @@ export async function action({ request }) {
                         }
                     `;
                     
-                    await admin.query(mutation, {
+                    const result = await admin.query(mutation, {
                         customerId: customerGID,
-                        value: JSON.stringify(wishlistProducts)
+                        value: metafieldValue
                     });
+                    
+                    console.log('Full metafield delete mutation result:', JSON.stringify(result, null, 2));
+                    
+                    if (result.data?.metafieldsSet?.userErrors?.length > 0) {
+                        console.error('❌ Metafield update errors:', result.data.metafieldsSet.userErrors);
+                    } else {
+                        console.log('✅ Metafield updated successfully after delete:', result.data?.metafieldsSet?.metafields);
+                    }
+                    
+                    if (result.errors) {
+                        console.error('❌ GraphQL errors:', result.errors);
+                    }
                 } catch (e) {
-                    console.log('Failed to update metafield:', e);
+                    console.error('❌ Exception updating metafield:', e.message, e.stack);
                 }
             }
-
-            // Also remove from database
-            await prisma.wishlist.deleteMany({
-                where: { customerId, productId, shop: shopDomain }
-            });
 
             return Response.json({ 
                 message: "Removed from wishlist successfully.",
