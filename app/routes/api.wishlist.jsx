@@ -44,14 +44,14 @@ export async function loader({ request }) {
         console.log('✅ Found wishlist items:', wishlistItems.length);
         console.log('📦 Raw items:', JSON.stringify(wishlistItems, null, 2));
 
-        // Extract product IDs
-        const productIds = wishlistItems.map(item => {
+        // Extract product IDs and remove duplicates
+        const productIds = [...new Set(wishlistItems.map(item => {
             return item.productId.startsWith('gid://') 
                 ? item.productId 
                 : `gid://shopify/Product/${item.productId}`;
-        });
+        }))];
 
-        console.log('📤 Returning product IDs:', productIds);
+        console.log('📤 Returning unique product IDs:', productIds);
 
         return Response.json({ 
             message: "Wishlist fetched successfully.",

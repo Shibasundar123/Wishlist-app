@@ -382,7 +382,9 @@ window.wishlistShow = function() {
       {% if customer %}
         await this.fetchWishlist();
       {% else %}
-        this.loadGuestWishlist();
+        this.wishlistItems = [];
+        this.loading = false;
+        this.error = 'Please log in to view your wishlist.';
       {% endif %}
     },
 
@@ -418,7 +420,10 @@ window.wishlistShow = function() {
         
         // Fetch product details from Shopify
         if (data.wishlist && data.wishlist.length > 0) {
-          await this.fetchProductDetails(data.wishlist);
+          // Remove duplicates from wishlist
+          const uniqueProductIds = [...new Set(data.wishlist)];
+          console.log('🔍 Unique product IDs:', uniqueProductIds);
+          await this.fetchProductDetails(uniqueProductIds);
         } else {
           this.wishlistItems = [];
         }
@@ -447,56 +452,41 @@ window.wishlistShow = function() {
         }
 
         const data = await response.json();
+        console.log('📦 Product details:', data);
         
-        // Add the 'adding' flag to each product
-        this.wishlistItems = data.products.map(p => ({
+        // Add the 'adding' flag to each product and ensure unique id
+        this.wishlistItems = data.products.map((p, index) => ({
           ...p,
+          id: p.productId || p.id || index,
           adding: false
         }));
+        
+        console.log('✨ Wishlist items loaded:', this.wishlistItems);
       } catch (error) {
         console.error('Error fetching product details:', error);
         this.error = 'Failed to load product details.';
       }
     },
 
-    loadGuestWishlist() {
-      const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
-      
-      if (wishlist.length > 0) {
-        this.fetchProductDetails(wishlist);
-      } else {
-        this.wishlistItems = [];
-        this.loading = false;
-      }
-    },
+
 
     async removeFromWishlist(productId) {
       if (!confirm('Remove this item from your wishlist?')) return;
 
       try {
-        {% if customer %}
-          const response = await fetch('/apps/wishlist/api/wishlist', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              customerId: this.customerId,
-              productId: productId,
-              shop: '{{ shop.permanent_domain }}'
-            })
-          });
+        const response = await fetch('/apps/wishlist/api/wishlist', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerId: this.customerId,
+            productId: productId,
+            shop: '{{ shop.permanent_domain }}'
+          })
+        });
 
-          if (!response.ok) {
-            throw new Error('Failed to remove item');
-          }
-        {% else %}
-          // Guest user - remove from localStorage
-          const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
-          const index = wishlist.indexOf(productId);
-          if (index > -1) {
-            wishlist.splice(index, 1);
-            localStorage.setItem('shopify_wishlist_items', JSON.stringify(wishlist));
-          }
-        {% endif %}
+        if (!response.ok) {
+          throw new Error('Failed to remove item');
+        }
 
         // Remove from UI
         this.wishlistItems = this.wishlistItems.filter(item => item.productId != productId);

@@ -3,6 +3,32 @@
     <svg class="wishlist-icon" width="24" height="24" viewBox="0 0 24 24" :fill="wishlisted ? 'red' : 'none'" stroke="{{ block.settings.text_color }}">
       <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
     </svg>
+    <span class="wishlist-text" x-text="wishlisted ? 'Remove' : 'Add'"></span>
+  </div>
+
+  <!-- Popup Notification -->
+  <div x-show="showPopup" 
+       x-transition:enter="popup-enter"
+       x-transition:enter-start="popup-enter-start"
+       x-transition:enter-end="popup-enter-end"
+       x-transition:leave="popup-leave"
+       x-transition:leave-start="popup-leave-start"
+       x-transition:leave-end="popup-leave-end"
+       class="wishlist-popup" 
+       style="display: none;">
+    <div class="wishlist-popup-content">
+      <div class="wishlist-popup-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" :fill="wishlisted ? '#ff4444' : 'none'" :stroke="wishlisted ? '#ff4444' : '#666'" stroke-width="2">
+          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+        </svg>
+      </div>
+      <h3 class="wishlist-popup-title" x-text="popupMessage"></h3>
+      <p class="wishlist-popup-subtitle">{{ product.title }}</p>
+      <div class="wishlist-popup-actions">
+        <a href="/pages/wishlist" class="wishlist-popup-btn wishlist-popup-btn-primary">View Wishlist</a>
+        <button @click="showPopup = false" class="wishlist-popup-btn wishlist-popup-btn-secondary">Continue Shopping</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -23,9 +49,118 @@
     transition: fill 0.3s ease;
   }
   
+  .wishlist-text {
+    font-size: 16px;
+    font-weight: 500;
+    transition: color 0.3s ease;
+  }
+  
   .wishlist-header h2 {
     margin: 0;
     font-size: 24px;
+  }
+
+  /* Popup Styles */
+  .wishlist-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    z-index: 9999;
+    max-width: 400px;
+    width: 90%;
+  }
+
+  .wishlist-popup-content {
+    padding: 30px;
+    text-align: center;
+  }
+
+  .wishlist-popup-icon {
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: center;
+  }
+
+  .wishlist-popup-title {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 10px 0;
+    color: #333;
+  }
+
+  .wishlist-popup-subtitle {
+    font-size: 14px;
+    color: #666;
+    margin: 0 0 20px 0;
+  }
+
+  .wishlist-popup-actions {
+    display: flex;
+    gap: 10px;
+    flex-direction: column;
+  }
+
+  .wishlist-popup-btn {
+    padding: 12px 24px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-block;
+    border: none;
+  }
+
+  .wishlist-popup-btn-primary {
+    background: #ff4444;
+    color: white;
+  }
+
+  .wishlist-popup-btn-primary:hover {
+    background: #e03333;
+  }
+
+  .wishlist-popup-btn-secondary {
+    background: #f5f5f5;
+    color: #333;
+  }
+
+  .wishlist-popup-btn-secondary:hover {
+    background: #e0e0e0;
+  }
+
+  /* Popup Transitions */
+  .popup-enter {
+    transition: all 0.3s ease;
+  }
+
+  .popup-enter-start {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+
+  .popup-enter-end {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  .popup-leave {
+    transition: all 0.2s ease;
+  }
+
+  .popup-leave-start {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  .popup-leave-end {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
   }
 </style>
 
@@ -36,25 +171,36 @@ window.wishlistData = function() {
         customerId: null,
         productId: '{{ product.id }}',
         wishlistMetafield: [],
+        showPopup: false,
+        popupMessage: '',
         
         init() {
             {% if customer %}
                 this.customerId = '{{ customer.id }}';
                 this.checkDatabaseWishlist();
             {% else %}
-                this.checkLocalWishlist();
+                this.wishlisted = false;
             {% endif %}
         },
 
         async checkDatabaseWishlist() {
-            // For logged-in users, check localStorage as initial state
-            const localWishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
-            this.wishlisted = localWishlist.includes(this.productId);
-        },
+            try {
+                const url = new URL('/apps/wishlist/api/wishlist', window.location.origin);
+                url.searchParams.append('customerId', this.customerId);
+                url.searchParams.append('shop', '{{ shop.permanent_domain }}');
+                
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
 
-        checkLocalWishlist() {
-            const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
-            this.wishlisted = wishlist.includes(this.productId);
+                if (response.ok) {
+                    const data = await response.json();
+                    this.wishlisted = data.wishlist && data.wishlist.includes(this.productId);
+                }
+            } catch (error) {
+                console.error('Error checking wishlist:', error);
+            }
         },
 
         async addToWishlist() {
@@ -79,24 +225,8 @@ window.wishlistData = function() {
                     alert('An error occurred. Please try again.');
                 }
             {% else %}
-                console.log('Guest user - using localStorage');
-                this.toggleLocalWishlist();
+                alert('Please log in to use the wishlist feature.');
             {% endif %}
-        },
-
-        toggleLocalWishlist() {
-            const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
-            const index = wishlist.indexOf(this.productId);
-
-            if (index > -1) {
-                wishlist.splice(index, 1);
-                this.wishlisted = false;
-            } else {
-                wishlist.push(this.productId);
-                this.wishlisted = true;
-            }
-
-            localStorage.setItem('shopify_wishlist_items', JSON.stringify(wishlist));
         },
 
         async saveToWishlist() {
@@ -123,9 +253,10 @@ window.wishlistData = function() {
                 
                 if (response.ok) {
                     this.wishlisted = true;
-                    // Also save to localStorage for instant access
-                    this.addToLocalStorage();
-                    console.log('Saved to database and localStorage');
+                    this.popupMessage = 'Added to Wishlist!';
+                    this.showPopup = true;
+                    setTimeout(() => { this.showPopup = false; }, 3000);
+                    console.log('Saved to database');
                 } else {
                     alert(data.message || 'Failed to add to wishlist');
                 }
@@ -151,32 +282,16 @@ window.wishlistData = function() {
                 
                 if (response.ok) {
                     this.wishlisted = false;
-                    // Also remove from localStorage
-                    this.removeFromLocalStorage();
-                    console.log('Removed from database and localStorage');
+                    this.popupMessage = 'Removed from Wishlist';
+                    this.showPopup = true;
+                    setTimeout(() => { this.showPopup = false; }, 3000);
+                    console.log('Removed from database');
                 } else {
                     alert(data.message || 'Failed to remove from wishlist');
                 }
             } catch (error) {
                 console.error('Error:', error);
                 alert('Failed to remove from wishlist');
-            }
-        },
-
-        addToLocalStorage() {
-            const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
-            if (!wishlist.includes(this.productId)) {
-                wishlist.push(this.productId);
-                localStorage.setItem('shopify_wishlist_items', JSON.stringify(wishlist));
-            }
-        },
-
-        removeFromLocalStorage() {
-            const wishlist = JSON.parse(localStorage.getItem('shopify_wishlist_items') || '[]');
-            const index = wishlist.indexOf(this.productId);
-            if (index > -1) {
-                wishlist.splice(index, 1);
-                localStorage.setItem('shopify_wishlist_items', JSON.stringify(wishlist));
             }
         }
     }
