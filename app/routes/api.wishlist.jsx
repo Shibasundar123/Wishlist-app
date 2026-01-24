@@ -12,13 +12,22 @@ export async function loader({ request }) {
         console.log('📥 GET Request - Shop:', shop);
 
         if (!customerId) {
+            console.error('❌ Missing customerId parameter');
             return Response.json({ 
                 message: "customerId is required.",
                 wishlist: []
             }, { status: 400 });
         }
 
-        const shopDomain = shop || 'sp-store-20220778.myshopify.com';
+        if (!shop) {
+            console.error('❌ Missing shop parameter');
+            return Response.json({ 
+                message: "shop parameter is required.",
+                wishlist: []
+            }, { status: 400 });
+        }
+
+        const shopDomain = shop;
 
         // Convert GID to numeric ID if needed for database lookup
         let numericCustomerId = customerId;
@@ -31,15 +40,25 @@ export async function loader({ request }) {
         console.log('🔍 Searching database with Customer ID:', numericCustomerId);
         console.log('🔍 Shop domain:', shopDomain);
 
-        const wishlistItems = await prisma.wishlist.findMany({
-            where: { 
-                customerId: numericCustomerId,
-                shop: shopDomain 
-            },
-            orderBy: {
-                createdAt: 'desc'
-            }
-        });
+        let wishlistItems;
+        try {
+            wishlistItems = await prisma.wishlist.findMany({
+                where: { 
+                    customerId: numericCustomerId,
+                    shop: shopDomain 
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            });
+        } catch (dbError) {
+            console.error('❌ Database query error:', dbError);
+            return Response.json({ 
+                message: "Database error while fetching wishlist.",
+                error: dbError.message,
+                wishlist: []
+            }, { status: 500 });
+        }
 
         console.log('✅ Found wishlist items:', wishlistItems.length);
         console.log('📦 Raw items:', JSON.stringify(wishlistItems, null, 2));
@@ -61,9 +80,11 @@ export async function loader({ request }) {
 
     } catch (error) {
         console.error("❌ Error fetching wishlist:", error);
+        console.error("❌ Error stack:", error.stack);
         return Response.json({ 
             message: "Error fetching wishlist.",
             error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
             wishlist: []
         }, { status: 500 });
     }
@@ -77,13 +98,23 @@ export async function action({ request }) {
         const body = await request.json();
         const { customerId, productId, shop } = body;
 
+        console.log('🔧 Action Request:', method, { customerId, productId, shop });
+
         if (!customerId || !productId) {
+            console.error('❌ Missing required parameters:', { customerId, productId });
             return Response.json({ 
                 message: "customerId and productId are required." 
             }, { status: 400 });
         }
 
-        const shopDomain = shop || 'sp-store-20220778.myshopify.com';
+        if (!shop) {
+            console.error('❌ Missing shop parameter');
+            return Response.json({ 
+                message: "shop parameter is required." 
+            }, { status: 400 });
+        }
+
+        const shopDomain = shop;
 
         // Convert IDs to GID format if needed
         const customerGID = customerId.startsWith('gid://') 
@@ -96,7 +127,15 @@ export async function action({ request }) {
 
         // Get offline session for GraphQL API access
         const sessionStorage = shopify.sessionStorage;
-        const sessions = await sessionStorage.findSessionsByShop(shopDomain);
+        let sessions;
+        try {
+            sessions = await sessionStorage.findSessionsByShop(shopDomain);
+            console.log('📋 Sessions found for action:', sessions?.length || 0);
+        } catch (sessionError) {
+            console.error('❌ Session retrieval error in action:', sessionError);
+            // Continue without admin - we can still use database
+            sessions = [];
+        }
         
         let admin = null;
         if (sessions && sessions.length > 0) {
@@ -298,10 +337,12 @@ export async function action({ request }) {
         return Response.json({ message: "Method not allowed." }, { status: 405 });
 
     } catch (error) {
-        console.error("Error:", error);
+        console.error("❌ Error in action:", error);
+        console.error("❌ Error stack:", error.stack);
         return Response.json({ 
             message: "Error managing wishlist.",
-            error: error.message 
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         }, { status: 500 });
     }
 }

@@ -5,27 +5,61 @@ export async function action({ request }) {
         const body = await request.json();
         const { productIds, shop } = body;
 
+        console.log('🔍 API Products Request:', { productIds, shop });
+
         if (!productIds || !Array.isArray(productIds)) {
+            console.error('❌ Invalid productIds:', productIds);
             return Response.json({ 
                 message: "productIds array is required.",
                 products: []
             }, { status: 400 });
         }
 
-        const shopDomain = shop || 'sp-store-20220778.myshopify.com';
+        if (!shop) {
+            console.error('❌ Shop domain is missing');
+            return Response.json({ 
+                message: "Shop domain is required.",
+                products: []
+            }, { status: 400 });
+        }
+
+        const shopDomain = shop;
 
         // Get offline session for GraphQL API access
         const sessionStorage = shopify.sessionStorage;
-        const sessions = await sessionStorage.findSessionsByShop(shopDomain);
+        
+        let sessions;
+        try {
+            sessions = await sessionStorage.findSessionsByShop(shopDomain);
+            console.log('📋 Sessions found:', sessions?.length || 0);
+        } catch (sessionError) {
+            console.error('❌ Session retrieval error:', sessionError);
+            return Response.json({ 
+                message: "Failed to retrieve session.",
+                error: sessionError.message,
+                products: []
+            }, { status: 500 });
+        }
         
         if (!sessions || sessions.length === 0) {
+            console.error('❌ No sessions found for shop:', shopDomain);
             return Response.json({ 
-                message: "No active session found.",
+                message: `No active session found for shop: ${shopDomain}`,
                 products: []
             }, { status: 401 });
         }
 
         const offlineSession = sessions.find(s => s.id.includes('-offline')) || sessions[0];
+        
+        if (!offlineSession || !offlineSession.accessToken) {
+            console.error('❌ No valid offline session or access token');
+            return Response.json({ 
+                message: "No valid session with access token found.",
+                products: []
+            }, { status: 401 });
+        }
+        
+        console.log('✅ Using session:', offlineSession.id);
         
         // Create GraphQL endpoint
         const graphqlEndpoint = `https://${shopDomain}/admin/api/2026-04/graphql.json`;
@@ -91,7 +125,18 @@ export async function action({ request }) {
             }),
         });
 
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('❌ Shopify API error:', response.status, errorText);
+            return Response.json({ 
+                message: "Shopify API request failed.",
+                error: `Status: ${response.status}`,
+                products: []
+            }, { status: 500 });
+        }
+
         const result = await response.json();
+        console.log('📊 GraphQL Response:', JSON.stringify(result, null, 2));
         
         if (result.errors) {
             console.error('GraphQL errors:', result.errors);
@@ -137,9 +182,11 @@ export async function action({ request }) {
 
     } catch (error) {
         console.error("❌ Error fetching products:", error);
+        console.error("❌ Error stack:", error.stack);
         return Response.json({ 
             message: "Error fetching products.",
             error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
             products: []
         }, { status: 500 });
     }
