@@ -235,7 +235,24 @@ window.wishlistData = function() {
             const payload = {
                 customerId: this.customerId,
                 productId: this.productId,
-                shop: '{{ shop.permanent_domain }}'
+                shop: '{{ shop.permanent_domain }}',
+                customerInfo: {
+                    {% if customer %}
+                    firstName: '{{ customer.first_name | default: "" }}',
+                    lastName: '{{ customer.last_name | default: "" }}',
+                    email: '{{ customer.email | default: "" }}',
+                    phone: '{{ customer.phone | default: "" }}',
+                    ordersCount: {{ customer.orders_count | default: 0 }},
+                    totalSpent: {{ customer.total_spent | remove: "$" | remove: "," | default: 0 }}
+                    {% else %}
+                    firstName: '',
+                    lastName: '',
+                    email: '',
+                    phone: '',
+                    ordersCount: 0,
+                    totalSpent: 0
+                    {% endif %}
+                }
             };
             console.log('Sending POST to:', url);
             console.log('Payload:', payload);

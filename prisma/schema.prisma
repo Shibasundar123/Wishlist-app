@@ -56,3 +56,16 @@ model Wishlist {
   shop       String?
   createdAt  DateTime @default(now())
 }
+model Customer {
+  id            Int      @id @default(autoincrement())
+  customerId    String   @unique
+  firstName     String?
+  lastName      String?
+  email         String?
+  phone         String?
+  shop          String?
+  ordersCount   Int?     @default(0)
+  totalSpent    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

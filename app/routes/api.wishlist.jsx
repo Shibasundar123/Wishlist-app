@@ -96,9 +96,9 @@ export async function action({ request }) {
 
     try {
         const body = await request.json();
-        const { customerId, productId, shop } = body;
+        const { customerId, productId, shop, customerInfo } = body;
 
-        console.log('🔧 Action Request:', method, { customerId, productId, shop });
+        console.log('🔧 Action Request:', method, { customerId, productId, shop, customerInfo });
 
         if (!customerId || !productId) {
             console.error('❌ Missing required parameters:', { customerId, productId });
@@ -173,6 +173,109 @@ export async function action({ request }) {
                 console.log('Product added to database:', productId);
             } else {
                 console.log('Product already in wishlist database');
+            }
+
+            // Save customer info to database (from frontend data or create placeholder)
+            try {
+                console.log('💾 Attempting to save customer:', { customerId, hasCustomerInfo: !!customerInfo });
+                if (customerInfo) {
+                    console.log('📋 Customer info received:', customerInfo);
+                }
+                
+                await prisma.customer.upsert({
+                    where: { customerId: customerId },
+                    update: {
+                        firstName: customerInfo?.firstName || '',
+                        lastName: customerInfo?.lastName || '',
+                        email: customerInfo?.email || '',
+                        phone: customerInfo?.phone || '',
+                        ordersCount: customerInfo?.ordersCount || 0,
+                        totalSpent: String(customerInfo?.totalSpent || '0'),
+                        shop: shopDomain,
+                    },
+                    create: {
+                        customerId: customerId,
+                        firstName: customerInfo?.firstName || '',
+                        lastName: customerInfo?.lastName || '',
+                        email: customerInfo?.email || '',
+                        phone: customerInfo?.phone || '',
+                        ordersCount: customerInfo?.ordersCount || 0,
+                        totalSpent: String(customerInfo?.totalSpent || '0'),
+                        shop: shopDomain,
+                    },
+                });
+                console.log(`✅ Customer ${customerId} saved to database`);
+            } catch (custErr) {
+                console.error('❌ Error saving customer info:', custErr.message);
+                console.error('❌ Full error:', custErr);
+            }
+
+            // Fetch and save customer info to database
+            console.log('🔍 Attempting to fetch customer info for:', customerId);
+            if (admin) {
+                try {
+                    const customerQuery = `
+                        query getCustomer($id: ID!) {
+                            customer(id: $id) {
+                                id
+                                firstName
+                                lastName
+                                email
+                                phone
+                                numberOfOrders
+                                amountSpent {
+                                    amount
+                                }
+                            }
+                        }
+                    `;
+                    
+                    console.log('📡 Querying Shopify for customer:', customerGID);
+                    const customerResult = await admin.query(customerQuery, {
+                        id: customerGID
+                    });
+                    
+                    console.log('📊 Customer API result:', JSON.stringify(customerResult, null, 2));
+                    
+                    if (customerResult.data?.customer) {
+                        const customer = customerResult.data.customer;
+                        console.log('👤 Customer data received:', {
+                            name: `${customer.firstName} ${customer.lastName}`,
+                            email: customer.email,
+                            phone: customer.phone
+                        });
+                        
+                        await prisma.customer.upsert({
+                            where: { customerId: customerId },
+                            update: {
+                                firstName: customer.firstName || '',
+                                lastName: customer.lastName || '',
+                                email: customer.email || '',
+                                phone: customer.phone || '',
+                                ordersCount: customer.numberOfOrders || 0,
+                                totalSpent: String(customer.amountSpent?.amount || '0'),
+                                shop: shopDomain,
+                            },
+                            create: {
+                                customerId: customerId,
+                                firstName: customer.firstName || '',
+                                lastName: customer.lastName || '',
+                                email: customer.email || '',
+                                phone: customer.phone || '',
+                                ordersCount: customer.numberOfOrders || 0,
+                                totalSpent: String(customer.amountSpent?.amount || '0'),
+                                shop: shopDomain,
+                            },
+                        });
+                        console.log(`✅ Customer ${customerId} (${customer.email}) saved to database`);
+                    } else {
+                        console.error('❌ No customer data in response');
+                    }
+                } catch (custErr) {
+                    console.error('❌ Error fetching customer info:', custErr.message, custErr.stack);
+                }
+            } else {
+                console.error('⚠️ Admin object not available, cannot fetch customer info');
             }
 
             // Get ALL wishlist items from database for this customer
