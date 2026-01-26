@@ -16,6 +16,8 @@ import {
 import enTranslations from "@shopify/polaris/locales/en.json";
 import { useLoaderData, useFetcher } from "react-router";
 import db from "../db.server";
+import shopify from "../shopify.server";
+import { sendWishlistSummaryEmail, getProductDetailsForEmail } from "../email.server";
 
 export async function loader() {
   const wishlistItems = await db.wishlist.findMany({
@@ -75,8 +77,79 @@ export async function action({ request }) {
   if (actionType === "sendEmail") {
     const customerId = formData.get("customerId");
     const email = formData.get("email");
-    console.log(`📧 Sending email to customer ${customerId} at ${email}`);
-    return { success: true, message: `Email sent to ${email}` };
+    const shop = formData.get("shop");
+    
+    console.log(`📧 Sending wishlist summary email to ${email}`);
+    
+    try {
+      // Get customer's wishlist items
+      const wishlistItems = await db.wishlist.findMany({
+        where: { 
+          customerId: customerId,
+          shop: shop 
+        }
+      });
+
+      if (wishlistItems.length === 0) {
+        return { 
+          success: false, 
+          message: `No wishlist items found for this customer` 
+        };
+      }
+
+      // Get Shopify admin client
+      const { admin } = await shopify.authenticate.admin(request);
+      
+      // Fetch product details for all wishlist items
+      const productDetails = [];
+      for (const item of wishlistItems) {
+        const productGID = item.productId.startsWith('gid://') 
+          ? item.productId 
+          : `gid://shopify/Product/${item.productId}`;
+        
+        const details = await getProductDetailsForEmail(admin.graphql, productGID);
+        if (details) {
+          productDetails.push(details);
+        }
+      }
+
+      // Get customer info
+      const customer = await db.customer.findUnique({
+        where: { customerId: customerId }
+      });
+
+      const customerName = customer 
+        ? `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || 'Customer'
+        : 'Customer';
+
+      // Send email
+      const emailResult = await sendWishlistSummaryEmail(
+        admin.graphql,
+        email,
+        customerName,
+        productDetails,
+        shop
+      );
+
+      if (emailResult.success) {
+        return { 
+          success: true, 
+          message: `Wishlist summary email sent to ${email}` 
+        };
+      } else {
+        return { 
+          success: false, 
+          message: `Failed to send email: ${emailResult.error || 'Unknown error'}` 
+        };
+      }
+
+    } catch (error) {
+      console.error('❌ Error sending email:', error);
+      return { 
+        success: false, 
+        message: `Error: ${error.message}` 
+      };
+    }
   }
 
   return { success: false };
@@ -100,6 +173,7 @@ export default function SettingsPage() {
           actionType: "sendEmail",
           customerId: selectedCustomer.customerId,
           email: selectedCustomer.customerInfo.email,
+          shop: selectedCustomer.shop,
         },
         { method: "post" }
       );

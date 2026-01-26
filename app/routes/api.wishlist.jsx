@@ -1,5 +1,6 @@
 import prisma from "../db.server";
 import shopify from "../shopify.server";
+import { sendWishlistEmail, getProductDetailsForEmail } from "../email.server";
 
 // Handle GET requests - fetch wishlist
 export async function loader({ request }) {
@@ -277,7 +278,38 @@ export async function action({ request }) {
             } else {
                 console.error('⚠️ Admin object not available, cannot fetch customer info');
             }
+            // Send email notification for added product
+            if (admin) {
+                try {
+                    console.log('📧 Preparing to send wishlist email...');
+                    const productDetails = await getProductDetailsForEmail(admin, productGID);
+                    
+                    if (productDetails) {
+                        // Get customer info from database to get email
+                        const customerData = await prisma.customer.findUnique({
+                            where: { customerId: customerId }
+                        });
 
+                        if (customerData?.email) {
+                            const customerName = `${customerData.firstName || ''} ${customerData.lastName || ''}`.trim() || 'Customer';
+                            const emailResult = await sendWishlistEmail(
+                                admin,
+                                customerData.email,
+                                customerName,
+                                productDetails,
+                                shopDomain,
+                                'added'
+                            );
+                            console.log('📧 Email result:', emailResult);
+                        } else {
+                            console.log('⚠️ No customer email found, skipping email notification');
+                        }
+                    }
+                } catch (emailErr) {
+                    console.error('❌ Error sending wishlist email:', emailErr.message);
+                    // Don't fail the request if email fails
+                }
+            }
             // Get ALL wishlist items from database for this customer
             const allWishlistItems = await prisma.wishlist.findMany({
                 where: { customerId, shop: shopDomain }
@@ -375,6 +407,36 @@ export async function action({ request }) {
 
             console.log('Remaining wishlist items from DB:', wishlistProducts);
             console.log('Customer GID:', customerGID);
+
+            // Send email notification for removed product
+            if (admin) {
+                try {
+                    console.log('📧 Preparing to send removal email...');
+                    const productDetails = await getProductDetailsForEmail(admin, productGID);
+                    
+                    if (productDetails) {
+                        const customerData = await prisma.customer.findUnique({
+                            where: { customerId: customerId }
+                        });
+
+                        if (customerData?.email) {
+                            const customerName = `${customerData.firstName || ''} ${customerData.lastName || ''}`.trim() || 'Customer';
+                            const emailResult = await sendWishlistEmail(
+                                admin,
+                                customerData.email,
+                                customerName,
+                                productDetails,
+                                shopDomain,
+                                'removed'
+                            );
+                            console.log('📧 Removal email result:', emailResult);
+                        }
+                    }
+                } catch (emailErr) {
+                    console.error('❌ Error sending removal email:', emailErr.message);
+                    // Don't fail the request if email fails
+                }
+            }
 
             // Sync to customer metafield
             if (!admin) {
